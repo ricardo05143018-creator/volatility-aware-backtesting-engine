@@ -1,30 +1,55 @@
 # Volatility-Aware Backtesting Engine
-An independent project exploring trend-following strategies, look-ahead bias, and the limitations of single-asset risk management.
 
-## Overview
-This repository documents my process of building a custom backtesting engine from scratch in Python. I started this because I noticed many online trading tutorials use vectorised pandas operations that accidentally introduce **look-ahead bias**. My goal was to build a strict day-by-day simulation loop and test how different risk management rules behave across assets with different volatility profiles (e.g., AAPL, TSLA, and BTC-USD).
+An independent quantitative finance project documenting the evolution of a custom Python backtesting engine. Rather than searching for a profitable strategy, this project investigates **why seemingly reasonable quantitative methods fail when exposed to increasingly realistic market conditions.**
 
-## Research Log
-
-### Phase 1: The Fixed Stop-Loss Flaw (v1)
-* **File:** `backtest.py`
-* **What I did:** Tested a Dual Moving Average (DMA) crossover strategy with a hard 5% fixed stop-loss.
-* **What went wrong:** The fixed stop-loss worked perfectly for stable stocks like AAPL and TSLA, but caused a severe "whipsaw" effect on Bitcoin, forcefully exiting positions during normal daily fluctuations and actively destroying performance compared to buy-and-hold.
-
-### Phase 2: ATR & The Overfitting Trap (v2)
-* **File:** `backtest_v2_atr_overfit_experiment.py`
-* **What I did:** Replaced the fixed stop-loss with an Average True Range (ATR) dynamic threshold to account for time-varying volatility and overnight gaps. I ran a Grid Search to find the optimal ATR multiplier.
-* **The Trap:** The grid search perfectly curve-fitted the ATR multiplier (1.5x) to AAPL's low-volatility 2025 data. When I tested this "optimal" parameter on TSLA, the strategy performed even worse than the fixed 5% stop-loss.
-* **Lesson Learned:** Parameter optimisation on historical data is highly prone to overfitting. A risk management rule calibrated for one volatility regime can fail badly in another. 
-
-### Phase 3: Modern Portfolio Theory & The Efficient Frontier (v3)
-* **File:** `backtest_v3_markowitz_portfolio.py`
-* **What I did:** Instead of optimizing stop-loss parameters for individual assets (which led to curve-fitting), I shifted to Asset Allocation. I introduced Gold (GLD) as an uncorrelated asset and built a covariance matrix from 2025 daily price data to lower portfolio variance. I then used scipy.optimize to calculate the Global Minimum Variance (GMV) and Max Sharpe portfolios.
-* **The Verification (Brute Force):** Because the underlying optimization algorithm (SLSQP) is currently a mathematical "black box" to me, I wrote a Monte Carlo simulation. I generated 10,000 random portfolio weights to draw the Markowitz Efficient Frontier from scratch. The optimizer's theoretical results aligned perfectly with the visual edges of my scatter plot.
-* **Optimization Results (2025):**
-  * Global Minimum Variance (GMV): Allocated 72.9% to GLD, 16.0% to AAPL, 11.1% to BTC, and 0.0% to TSLA (Expected Return: 23.46%, Volatility: 15.50%).
-  * Maximum Sharpe Ratio: Allocated 87.1% to GLD, 12.9% to AAPL, and 0.0% to the rest (Expected Return: 28.14%, Volatility: 16.34%).
-* **The Trap:** Adding an uncorrelated asset like GLD fundamentally lowers portfolio variance. However, Markowitz optimization is highly sensitive to historical returns. The Max Sharpe algorithm acted as an "error maximizer," heavily over-allocating to GLD simply because it had a strong bull run in 2025. This proves that feeding historical returns directly into an optimizer is just another form of look-ahead bias.
+**Tech Stack:** Python 3.11+, NumPy, SciPy, Pandas, Matplotlib, Git.
 
 ---
-*Author: Zhixun (Ricardo) Zheng | June 2026*
+
+## Research Evolution
+
+* **Phase 1: Single-Asset Framework**
+  Event-Driven Backtesting ➔ Fixed Stop-Loss ➔ Whipsaw Effects on Volatile Assets
+
+* **Phase 2: Adaptive Risk Mitigation**
+  ATR Dynamic Stop-Loss ➔ Grid Search Optimisation ➔ Curve Fitting & Regime Trap
+
+* **Phase 3: Multi-Asset Mathematical Expansion**
+  Markowitz MPT ➔ Monte Carlo Verification (10k) ➔ Out-of-Sample Forward Failure
+
+---
+
+## Phase 1 — Eliminating Look-Ahead Bias
+
+* **Implementation:** Built a strict event-driven engine using explicit daily iteration loops. Trading decisions use only T-1 close data to completely block future-function leaks.
+* **The Whipsaw Problem:** I tested a baseline DMA strategy with a fixed 5% stop-loss. While it removed look-ahead bias, applying a static risk rule caused severe whipsawing on high-volatility assets like TSLA and BTC-USD, proving that fixed thresholds do not survive across different volatility regimes.
+
+## Phase 2 — ATR & The Overfitting Trap
+
+To address the whipsaw effect, I introduced an Average True Range (ATR) dynamic stop-loss band and ran a multi-dimensional Grid Search to find the optimal multipliers.
+
+The result was a brutal lesson in historical curve-fitting. While the "optimal" parameter looked great in-sample, it failed completely when tested out-of-sample across un-correlated assets. The optimizer simply memorized a specific market regime rather than discovering a robust trading rule.
+
+## Phase 3 — Portfolio Allocation & Forward Failure
+
+Realising single-asset timing was too fragile, I shifted to risk diversification using Modern Portfolio Theory (Markowitz), adding Gold (GLD) to isolate equity noise. Because SciPy's SLSQP solver felt like a black box at my current level of study, I verified the optimizer by brute-forcing a Monte Carlo simulation of 10,000 randomized portfolios.
+
+**The Out-of-Sample Reality Check:**
+I locked the optimal weights fitted on 2025 data and forward-tested them on unseen 2026 data. The performance deterioration was substantial. It proved that historical covariance scaling is highly fragile under macro-economic shifts. Mathematical optimality in-sample guarantees nothing about forward predictability—it often just acts as an error maximizer that amplifies historical anomalies.
+
+---
+
+## Repository Structure
+
+* `backtest.py` — Phase 1: Event-driven engine & fixed stop-loss
+* `backtest_v2_atr_overfit.py` — Phase 2: ATR grid search & robustness testing
+* `backtest_v3_markowitz.py` — Phase 3: MPT optimization & forward validation
+* `From_Single_Asset_Timing_to_Portfolio_Allocation.pdf` — Complete research report
+
+---
+
+**Dev Note:** *The current repository relies heavily on historical backtests across 2025/2026 data regimes. While the event-driven daily iteration mechanism completely blocks look-ahead data leakage, the sample covariance inputs remain highly sensitive to local stationary assumptions. Future iterations will deprecate raw sample matrices in favor of shrinkage estimators to address the optimizer's stability edge.*
+
+**Author:** Zhixun (Ricardo) Zheng
+**Date:** June 2026
+**Status:** Completed
