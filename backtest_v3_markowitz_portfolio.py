@@ -36,13 +36,12 @@ def negative_sharpe_ratio(weights, returns, cov_matrix, risk_free_rate=0.0):
         return 0
     return -(p_ret - risk_free_rate) / p_vol
 
-# =============================================================
+
 if __name__ == "__main__":
 
     tickers = ["AAPL", "TSLA", "BTC-USD", "GLD"]
     csv_filename = "v3_market_data_2025.csv"
 
-    # --- data loading and caching ---
     if os.path.exists(csv_filename):
         print(f"Found local cache [{csv_filename}], loading directly...")
         raw_data = pd.read_csv(csv_filename, index_col=0, parse_dates=True)
@@ -61,18 +60,18 @@ if __name__ == "__main__":
                 raise ValueError("Downloaded data is empty. Might be rate limited.")
         except Exception as e:
             print(f"\n  Error downloading data: {e}")
-            print("  Tip: Wait a few minutes for the rate limit to reset, or change proxy nodes.")
             raw_data = pd.DataFrame()
 
     if raw_data.empty:
         print("Warning: No asset data available. Exiting.")
         exit()
 
-    # --- returns and correlation ---
-    daily_returns = raw_data.pct_change().dropna()
+    # returns and correlation
+    # ffill equity gaps on weekends to preserve continuous crypto timeline
+    daily_returns = raw_data.ffill().pct_change().dropna()
     correlation_matrix = daily_returns.corr()
 
-    print("\n--- 2025 asset correlations ---")
+    print("\n--- Correlation matrix (2025) ---")
     print(correlation_matrix.round(3))
 
     # plot matrix
@@ -81,15 +80,13 @@ if __name__ == "__main__":
     plt.title("Asset Correlation Matrix (2025)")
     plt.tight_layout()
 
-    # --- annualize stats ---
     num_assets = len(daily_returns.columns)
     assets = list(daily_returns.columns)
-    num_trading_days = 252   # using 252 for everything including BTC for now, probably wrong
+    num_trading_days = 365   # bumped to 365 to handle full calendar year sequence properly
 
     annual_returns = daily_returns.mean() * num_trading_days
     annual_covariance = daily_returns.cov() * num_trading_days
 
-    # --- optimization settings ---
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
     bounds = tuple((0, 1) for _ in range(num_assets))
     initial_weights = num_assets * [1.0 / num_assets]
@@ -114,37 +111,35 @@ if __name__ == "__main__":
         constraints=constraints
     )
 
-    # --- report results ---
-    print("\n" + "=" * 50)
-    print("         Optimization results (2025)")
-    print("=" * 50)
+    # report results
+    print(f"\nOptimization Results Summary (2025):")
 
     gmv_weights = gmv_result.x
     gmv_ret, gmv_vol = portfolio_performance(gmv_weights, annual_returns, annual_covariance)
 
-    print("[1] Global Minimum Variance (GMV):")
-    print(f"  -> Expected Annual Return: {gmv_ret * 100:.2f}%")
-    print(f"  -> Annual Volatility:      {gmv_vol * 100:.2f}%")
-    print(f"  -> Sharpe Ratio:           {gmv_ret / gmv_vol:.2f}")
-    print("  -> Allocation:")
+    print("Global Minimum Variance (GMV):")
+    print(f"Expected Annual Return: {gmv_ret * 100:.2f}%")
+    print(f"Annual Volatility:      {gmv_vol * 100:.2f}%")
+    print(f"Sharpe Ratio:           {gmv_ret / gmv_vol:.2f}")
+    print("Allocation:")
     for asset, weight in zip(assets, gmv_weights):
-        print(f"     * {asset}: {weight * 100:.1f}%")
+        print(f"{asset}: {weight * 100:.1f}%")
 
     print("-" * 50)
 
     ms_weights = max_sharpe_result.x
     ms_ret, ms_vol = portfolio_performance(ms_weights, annual_returns, annual_covariance)
 
-    print("[2] Maximum Sharpe Ratio Portfolio:")
-    print(f"  -> Expected Annual Return: {ms_ret * 100:.2f}%")
-    print(f"  -> Annual Volatility:      {ms_vol * 100:.2f}%")
-    print(f"  -> Sharpe Ratio:           {ms_ret / ms_vol:.2f}")
-    print("  -> Allocation:")
+    print("Maximum Sharpe Ratio Portfolio:")
+    print(f"Expected Annual Return: {ms_ret * 100:.2f}%")
+    print(f"Annual Volatility:      {ms_vol * 100:.2f}%")
+    print(f"Sharpe Ratio:           {ms_ret / ms_vol:.2f}")
+    print("Allocation:")
     for asset, weight in zip(assets, ms_weights):
-        print(f"     * {asset}: {weight * 100:.1f}%")
+        print(f"{asset}: {weight * 100:.1f}%")
     print("=" * 50)
 
-    # --- try random weights loop ---
+    # try random weights loop
     print("\nsimulating portfolios...")
 
     np.random.seed(42)
@@ -152,9 +147,11 @@ if __name__ == "__main__":
     results = np.zeros((3, num_portfolios))
     weights_record = []
 
+    # generate random weights vector via dirichlet matrix
+    random_weights = np.random.dirichlet(np.ones(num_assets), size=num_portfolios)
+
     for i in range(num_portfolios):
-        w = np.random.random(num_assets)
-        w /= np.sum(w)
+        w = random_weights[i]
         weights_record.append(w)
 
         p_ret, p_vol = portfolio_performance(w, annual_returns, annual_covariance)
@@ -163,8 +160,7 @@ if __name__ == "__main__":
         results[1, i] = p_vol
         results[2, i] = p_ret / p_vol if p_vol != 0 else 0
 
-    # --- plot results ---
-    # TODO: check if 10000 points is enough to get a smooth frontier line
+    # plot results
     plt.figure(figsize=(10, 7))
 
     scatter = plt.scatter(results[1, :] * 100, results[0, :] * 100,
