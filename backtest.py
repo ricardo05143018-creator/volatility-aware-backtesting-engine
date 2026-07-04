@@ -1,18 +1,14 @@
 """
-Simple moving-average crossover backtest (V1 Baseline).
+v1: Simple moving-average crossover baseline.
 
-This version uses:
-- Golden Cross / Death Cross for entries and exits
-- Fixed 5% stop loss from the entry price
-
-I wrote this first to establish a basic trend-following baseline
-before trying more advanced volatility-based stops.
+I wrote this first to establish a basic trend-following baseline before trying
+more advanced volatility-based stops. Uses a simple Golden Cross / Death Cross
+for entries and exits with a fixed 5% stop loss from the entry price.
 """
 
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
-import numpy as np
 import yfinance as yf
 
 # Network proxy setup if needed
@@ -21,25 +17,18 @@ import yfinance as yf
 
 
 def get_annual_trading_days(ticker):
-    """
-    252 days for stocks, 365 for crypto.
-    Need this so the crypto Sharpe ratio doesn't get messed up.
-    """
+    """252 days for stocks, 365 for crypto."""
     if "-USD" in ticker or "-USDT" in ticker:
         return 365
     return 252
 
 
 def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plot=True):
-    """
-    Runs the actual bar-by-bar loop for the MA crossover + fixed stop loss.
-    Returns a dictionary of metrics like Sharpe, Max DD, etc.
-    """
+    """Runs the bar-by-bar loop for the MA crossover + fixed stop loss."""
 
-    # --- load data ---
+    # load data
     raw_df = yf.download(ticker, start="2025-01-01", end="2025-12-31", progress=False)
 
-    # idk why yfinance returns multiindex sometimes but whatever
     if isinstance(raw_df.columns, pd.MultiIndex):
         raw_df.columns = raw_df.columns.droplevel(1)
 
@@ -49,7 +38,7 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
 
     close = raw_df['Close']
 
-    # --- calculate short and long MAs ---
+    # calculate short and long MAs
     raw_df['MA_Short'] = close.rolling(window=short_window).mean()
     raw_df['MA_Long']  = close.rolling(window=long_window).mean()
 
@@ -59,23 +48,18 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
         print(f"  Not enough rows for {ticker} with windows {short_window}/{long_window}")
         return None
 
-    # check if short MA is above long MA
     df['Signal'] = df['MA_Short'] > df['MA_Long']
 
-    # --- run loop day by day ---
-    # tried vectorized first, got weird results, switched to loop
-
+    # run loop day by day
     closes  = df['Close'].values
     signals = df['Signal'].values
 
-    commission = 0.001   # 0.1% per trade for fees and slippage
-    # print(f"debug: {ticker}  short={short_window}  long={long_window}")
-
+    commission = 0.001
     strategy_returns = [0.0]
     positions        = [0]
     trade_log        = []
 
-    position    = 0      # 0 = cash, 1 = long
+    position    = 0
     entry_price = 0.0
     entry_day   = 0
 
@@ -84,12 +68,9 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
         strat_ret = 0.0
 
         if position == 1:
-
             drawdown_from_entry = (closes[i] - entry_price) / entry_price
 
             if drawdown_from_entry <= -stop_loss_pct:
-                # assume stop executes at exactly stop price -- probably not realistic
-                # in real life you'd get slippage but close enough for now
                 stop_price = entry_price * (1 - stop_loss_pct)
                 strat_ret  = (stop_price - closes[i - 1]) / closes[i - 1] - commission
                 position   = 0
@@ -102,7 +83,6 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
                 })
 
             elif not signals[i - 1]:
-                # death cross exit
                 strat_ret = -commission
                 position  = 0
                 trade_log.append({
@@ -114,12 +94,9 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
                 })
 
             else:
-                # still in the trade
-                # TODO: try trailing stop or ATR later, 5% is too rigid for crypto
                 strat_ret = daily_mkt_return
 
         else:
-            # golden cross entry signal
             if i >= 2 and signals[i - 1] and not signals[i - 2]:
                 position    = 1
                 entry_price = closes[i - 1]
@@ -129,8 +106,7 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
         strategy_returns.append(strat_ret)
         positions.append(position)
 
-
-    # --- handle open position at the end of the year ---
+    # handle open position at the end of the year
     if position == 1:
         final_return_pct = (closes[-1] - entry_price) / entry_price * 100
         trade_log.append({
@@ -141,11 +117,10 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
             'exit_reason' : 'year_end'
         })
 
-
     df['Strategy_Return'] = strategy_returns
     df['Position']        = positions
 
-    # --- calculate final metrics ---
+    # calculate final metrics
     df['Market_Return'] = df['Close'].pct_change().fillna(0)
     df['Market_Cum']    = (1 + df['Market_Return']).cumprod()
     df['Strategy_Cum']  = (1 + df['Strategy_Return'].fillna(0)).cumprod()
@@ -154,7 +129,6 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
     mean_ret = df['Strategy_Return'].mean()
     std_ret  = df['Strategy_Return'].std()
 
-    # annualize by multiplying by sqrt of days
     if std_ret == 0 or pd.isna(std_ret):
         sharpe = 0.0
     else:
@@ -173,7 +147,7 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
     else:
         win_rate = avg_holding = stop_loss_exits = 0
 
-    # --- plotting code ---
+    # plot results
     if show_plot:
         fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True,
                                  gridspec_kw={'height_ratios': [3, 1]})
@@ -217,10 +191,9 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
     }
 
 
-# =============================================================
 if __name__ == "__main__":
 
-    # ---- Step 1: run grid search on AAPL ----
+    # run parameter grid search on AAPL
     short_options = [3, 5, 8, 10]
     long_options  = [20, 30, 40, 50, 60]
     results       = []
@@ -257,7 +230,7 @@ if __name__ == "__main__":
           f"Return: {best_row['Total_Return'] * 100:.2f}%  "
           f"MDD: {best_row['Max_Drawdown'] * 100:.2f}%\n")
 
-    # ---- Step 2: cross-market test ----
+    # cross-market test
     print(f"Testing these settings across other markets...\n")
 
     tickers     = ["AAPL", "TSLA", "BTC-USD"]
