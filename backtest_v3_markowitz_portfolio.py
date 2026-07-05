@@ -67,8 +67,7 @@ if __name__ == "__main__":
         exit()
 
     # returns and correlation
-    # ffill equity gaps on weekends to preserve continuous crypto timeline
-    daily_returns = raw_data.ffill().pct_change().dropna()
+    daily_returns = raw_data.pct_change().dropna()
     correlation_matrix = daily_returns.corr()
 
     print("\n--- Correlation matrix (2025) ---")
@@ -82,7 +81,7 @@ if __name__ == "__main__":
 
     num_assets = len(daily_returns.columns)
     assets = list(daily_returns.columns)
-    num_trading_days = 365   # bumped to 365 to handle full calendar year sequence properly
+    num_trading_days = 252
 
     annual_returns = daily_returns.mean() * num_trading_days
     annual_covariance = daily_returns.cov() * num_trading_days
@@ -147,11 +146,10 @@ if __name__ == "__main__":
     results = np.zeros((3, num_portfolios))
     weights_record = []
 
-    # generate random weights vector via dirichlet matrix
-    random_weights = np.random.dirichlet(np.ones(num_assets), size=num_portfolios)
 
     for i in range(num_portfolios):
-        w = random_weights[i]
+        w = np.random.random(num_assets)
+        w /= np.sum(w)
         weights_record.append(w)
 
         p_ret, p_vol = portfolio_performance(w, annual_returns, annual_covariance)
