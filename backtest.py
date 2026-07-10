@@ -1,5 +1,6 @@
 """
 v1: ma crossover with fixed stop loss
+Date: May 2026
 """
 
 import os

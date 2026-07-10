@@ -1,5 +1,6 @@
 """
 v2: ma crossover with atr stop
+Date: May 2026
 """
 
 import os
