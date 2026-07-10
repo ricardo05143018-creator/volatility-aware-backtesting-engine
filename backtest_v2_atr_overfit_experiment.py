@@ -1,9 +1,5 @@
 """
-v2: ATR volatility-based stop experiment.
-
-Same crossover rules as the v1 baseline but switched to an ATR-based stop.
-BTC was getting stopped out way too often with the fixed 5% drop, so I'm
-testing if a volatility multiplier handles the crypto noise better.
+v2: ma crossover with atr stop
 """
 
 import os
@@ -17,16 +13,11 @@ import yfinance as yf
 
 
 def get_annual_trading_days(ticker):
-    """252 days for stocks, 365 for crypto."""
     if "-USD" in ticker or "-USDT" in ticker:
         return 365
     return 252
 
-
 def run_backtest(ticker, short_window, long_window, atr_multiplier=2, show_plot=True):
-    """Runs the bar-by-bar loop using an ATR trailing stop."""
-
-    # load data
     raw_df = yf.download(ticker, start="2025-01-01", end="2025-12-31", progress=False)
 
     if isinstance(raw_df.columns, pd.MultiIndex):
@@ -37,41 +28,35 @@ def run_backtest(ticker, short_window, long_window, atr_multiplier=2, show_plot=
         return None
 
     close = raw_df['Close']
-
-    # calculate short and long MAs
     raw_df['MA_Short'] = close.rolling(window=short_window).mean()
-    raw_df['MA_Long']  = close.rolling(window=long_window).mean()
+    raw_df['MA_Long'] = close.rolling(window=long_window).mean()
 
-    # calculate true range and 14-day ATR
-    h_l = raw_df['High'] - raw_df['Low']
-    h_pc = (raw_df['High'] - raw_df['Close'].shift(1)).abs()
-    l_pc = (raw_df['Low'] - raw_df['Close'].shift(1)).abs()
-    raw_df['TR'] = pd.concat([h_l, h_pc, l_pc], axis=1).max(axis=1)
+    tr1 = raw_df['High'] - raw_df['Low']
+    tr2 = (raw_df['High'] - raw_df['Close'].shift(1)).abs()
+    tr3 = (raw_df['Low'] - raw_df['Close'].shift(1)).abs()
+    raw_df['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     raw_df['ATR'] = raw_df['TR'].rolling(window=14).mean()
 
     df = raw_df.dropna().copy()
-
     if len(df) < 2:
         print(f"  Not enough rows for {ticker} with windows {short_window}/{long_window}")
         return None
 
     df['Signal'] = df['MA_Short'] > df['MA_Long']
 
-    # run loop day by day
-    closes  = df['Close'].values
+    closes = df['Close'].values
     signals = df['Signal'].values
-    atrs    = df['ATR'].values
+    atrs = df['ATR'].values
 
     commission = 0.001
-
     strategy_returns = [0.0]
-    positions        = [0]
-    trade_log        = []
+    positions = [0]
+    trade_log = []
 
-    position    = 0
+    position = 0
     entry_price = 0.0
-    entry_day   = 0
-    stop_price  = 0.0
+    entry_day = 0
+    stop_price = 0.0
 
     for i in range(1, len(df)):
         daily_mkt_return = (closes[i] - closes[i - 1]) / closes[i - 1]
@@ -79,135 +64,110 @@ def run_backtest(ticker, short_window, long_window, atr_multiplier=2, show_plot=
 
         if position == 1:
             if closes[i] <= stop_price:
-                strat_ret  = (stop_price - closes[i - 1]) / closes[i - 1] - commission
-                position   = 0
+                strat_ret = (stop_price - closes[i - 1]) / closes[i - 1] - commission
+                position = 0
                 trade_log.append({
-                    'entry_price' : round(entry_price, 2),
-                    'exit_price'  : round(stop_price, 2),
-                    'return_pct'  : round(strat_ret * 100, 3),
+                    'entry_price': round(entry_price, 2),
+                    'exit_price': round(stop_price, 2),
+                    'return_pct': round(strat_ret * 100, 3),
                     'holding_days': i - entry_day,
-                    'exit_reason' : 'stop_loss'
+                    'exit_reason': 'stop_loss'
                 })
-
             elif not signals[i - 1]:
                 strat_ret = -commission
-                position  = 0
+                position = 0
                 trade_log.append({
-                    'entry_price' : round(entry_price, 2),
-                    'exit_price'  : round(closes[i - 1], 2),
-                    'return_pct'  : round(strat_ret * 100, 3),
+                    'entry_price': round(entry_price, 2),
+                    'exit_price': round(closes[i - 1], 2),
+                    'return_pct': round(strat_ret * 100, 3),
                     'holding_days': i - entry_day,
-                    'exit_reason' : 'death_cross'
+                    'exit_reason': 'death_cross'
                 })
-
             else:
                 strat_ret = daily_mkt_return
-
         else:
             if i >= 2 and signals[i - 1] and not signals[i - 2]:
-                position    = 1
+                position = 1
                 entry_price = closes[i - 1]
-                entry_day   = i
-                # note: fixed atr barrier set at entry
-                # TODO: convert to true trailing stop execution later
-                stop_price  = entry_price - (atr_multiplier * atrs[i - 1])
-                strat_ret   = daily_mkt_return - commission
+                entry_day = i
+                # TODO: trailing stop
+                stop_price = entry_price - (atr_multiplier * atrs[i - 1])
+                strat_ret = daily_mkt_return - commission
 
         strategy_returns.append(strat_ret)
         positions.append(position)
 
-    # handle open position at the end of the year
     if position == 1:
         final_return_pct = (closes[-1] - entry_price) / entry_price * 100
         trade_log.append({
-            'entry_price' : round(entry_price, 2),
-            'exit_price'  : round(closes[-1], 2),
-            'return_pct'  : round(final_return_pct, 3),
+            'entry_price': round(entry_price, 2),
+            'exit_price': round(closes[-1], 2),
+            'return_pct': round(final_return_pct, 3),
             'holding_days': len(df) - entry_day,
-            'exit_reason' : 'year_end'
-            })
+            'exit_reason': 'year_end'
+        })
 
     df['Strategy_Return'] = strategy_returns
-    df['Position']        = positions
-
-    # calculate final metrics
+    df['Position'] = positions
     df['Market_Return'] = df['Close'].pct_change().fillna(0)
-    df['Market_Cum']    = (1 + df['Market_Return']).cumprod()
-    df['Strategy_Cum']  = (1 + df['Strategy_Return'].fillna(0)).cumprod()
+    df['Market_Cum'] = (1 + df['Market_Return']).cumprod()
+    df['Strategy_Cum'] = (1 + df['Strategy_Return'].fillna(0)).cumprod()
 
     ann_days = get_annual_trading_days(ticker)
     mean_ret = df['Strategy_Return'].mean()
-    std_ret  = df['Strategy_Return'].std()
+    std_ret = df['Strategy_Return'].std()
 
-    if std_ret == 0 or pd.isna(std_ret):
-        sharpe = 0.0
-    else:
-        sharpe = (mean_ret / std_ret) * (ann_days ** 0.5)
-
-    peak         = df['Strategy_Cum'].cummax()
+    sharpe = 0.0 if std_ret == 0 or pd.isna(std_ret) else (mean_ret / std_ret) * (ann_days ** 0.5)
+    peak = df['Strategy_Cum'].cummax()
     max_drawdown = (df['Strategy_Cum'] / peak - 1.0).min()
     total_return = df['Strategy_Cum'].iloc[-1] - 1.0
 
     num_trades = len(trade_log)
     if num_trades > 0:
-        wins            = [t for t in trade_log if t['return_pct'] > 0]
-        win_rate        = len(wins) / num_trades
-        avg_holding     = sum(t['holding_days'] for t in trade_log) / num_trades
+        wins = [t for t in trade_log if t['return_pct'] > 0]
+        win_rate = len(wins) / num_trades
+        avg_holding = sum(t['holding_days'] for t in trade_log) / num_trades
         stop_loss_exits = sum(1 for t in trade_log if t['exit_reason'] == 'stop_loss')
     else:
         win_rate = avg_holding = stop_loss_exits = 0
 
-    # plot results
     if show_plot:
-        fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True,
-                                 gridspec_kw={'height_ratios': [3, 1]})
-
-        axes[0].plot(df.index, df['Market_Cum'],
-                     label='Buy & Hold', color='gray', linestyle='--')
-        axes[0].plot(df.index, df['Strategy_Cum'],
-                     label=f'MA Strategy', color='steelblue')
+        fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+        axes[0].plot(df.index, df['Market_Cum'], label='Buy & Hold', color='gray', linestyle='--')
+        axes[0].plot(df.index, df['Strategy_Cum'], label='MA Strategy', color='steelblue')
 
         dd_series = df['Strategy_Cum'] / df['Strategy_Cum'].cummax() - 1.0
-        dd_end    = dd_series.idxmin()
-        dd_start  = df['Strategy_Cum'].loc[:dd_end].idxmax()
+        dd_end = dd_series.idxmin()
+        dd_start = df['Strategy_Cum'].loc[:dd_end].idxmax()
         axes[0].axvspan(dd_start, dd_end, color='red', alpha=0.15, label='Max Drawdown Zone')
 
-        axes[0].set_title(
-            f"{ticker}  |  Return: {total_return * 100:.1f}%  |  "
-            f"Sharpe: {sharpe:.2f}  |  Trades: {num_trades}",
-            fontsize=9
-        )
+        axes[0].set_title(f"{ticker} | Return: {total_return * 100:.1f}% | Sharpe: {sharpe:.2f} | Trades: {num_trades}", fontsize=9)
         axes[0].legend(fontsize=8)
         axes[0].set_ylabel("Cumulative Return")
 
-        axes[1].fill_between(df.index, df['Position'], step='post',
-                             alpha=0.3, color='steelblue')
+        axes[1].fill_between(df.index, df['Position'], step='post', alpha=0.3, color='steelblue')
         axes[1].set_ylabel("Position")
         axes[1].set_yticks([0, 1])
         axes[1].set_yticklabels(["Cash", "Long"])
-
         plt.tight_layout()
         plt.show()
 
     return {
-        "Sharpe"          : round(sharpe, 2),
-        "Max_Drawdown"    : round(max_drawdown, 4),
-        "Total_Return"    : round(total_return, 4),
-        "Num_Trades"      : num_trades,
-        "Win_Rate"        : round(win_rate, 3),
-        "Avg_Holding_Days": round(avg_holding, 1),
-        "Stop_Loss_Exits" : stop_loss_exits,
-        "Trade_Log"       : trade_log
+        "sharpe": round(sharpe, 2),
+        "max_drawdown": round(max_drawdown, 4),
+        "total_return": round(total_return, 4),
+        "num_trades": num_trades,
+        "win_rate": round(win_rate, 3),
+        "avg_holding_days": round(avg_holding, 1),
+        "stop_loss_exits": stop_loss_exits,
+        "trade_log": trade_log
     }
 
-
 if __name__ == "__main__":
-
-    # run 3D parameter optimization on AAPL
     short_options = [3, 5, 8, 10]
-    long_options  = [20, 30, 40, 50, 60]
-    atr_options   = [1.5, 2.0, 2.5, 3.0]
-    results       = []
+    long_options = [20, 30, 40, 50, 60]
+    atr_options = [1.5, 2.0, 2.5, 3.0]
+    results = []
 
     print("Running 3D grid search on AAPL (MAs + ATR)...\n")
 
@@ -215,53 +175,47 @@ if __name__ == "__main__":
         for l in long_options:
             if s >= l:
                 continue
-            for a in atr_options:  # slow as hell with 3 nested loops
+            for a in atr_options:
                 r = run_backtest("AAPL", s, l, atr_multiplier=a, show_plot=False)
                 if r:
                     results.append({
-                        "Short"       : s,
-                        "Long"        : l,
-                        "ATR_Mult"    : a,
-                        "Sharpe"      : r["Sharpe"],
-                        "Total_Return": r["Total_Return"],
-                        "Max_Drawdown": r["Max_Drawdown"],
-                        "Num_Trades"  : r["Num_Trades"],
-                        "Win_Rate"    : r["Win_Rate"]
-                    })
+                        "short": s,
+                        "long": l,
+                        "atr_mult": a,
+                        "sharpe": r["sharpe"],
+                        "total_return": r["total_return"],
+                        "max_drawdown": r["max_drawdown"],
+                        "num_trades": r["num_trades"],
+                        "win_rate": r["win_rate"]
+                })
 
     results_df = pd.DataFrame(results)
-
     print("Top 5 parameters sorted by Sharpe:\n")
-    print(results_df.sort_values("Sharpe", ascending=False).head(5).to_string(index=False))
+    print(results_df.sort_values("sharpe", ascending=False).head(5).to_string(index=False))
 
-    best_row   = results_df.loc[results_df["Sharpe"].idxmax()]
-    best_short = int(best_row["Short"])
-    best_long  = int(best_row["Long"])
-    best_atr   = float(best_row["ATR_Mult"])
+    best_row = results_df.loc[results_df["sharpe"].idxmax()]
+    best_short = int(best_row["short"])
+    best_long = int(best_row["long"])
+    best_atr = float(best_row["atr_mult"])
 
     print(f"\nBest settings: MA({best_short}, {best_long}) | ATR Mult: {best_atr}")
-    print(f"  Sharpe: {best_row['Sharpe']}  "
-          f"Return: {best_row['Total_Return'] * 100:.2f}%  "
-          f"MDD: {best_row['Max_Drawdown'] * 100:.2f}%\n")
+    print(f"  Sharpe: {best_row['sharpe']}  Return: {best_row['total_return'] * 100:.2f}%  MDD: {best_row['max_drawdown'] * 100:.2f}%\n")
 
-    # cross-market test
-    print(f"Testing these settings across other markets...\n")
-
-    tickers     = ["AAPL", "TSLA", "BTC-USD"]
+    print("Testing these settings across other markets...\n")
+    tickers = ["AAPL", "TSLA", "BTC-USD"]
     all_results = []
 
     for t in tickers:
         print(f"--- {t} ---")
         report = run_backtest(t, best_short, best_long, atr_multiplier=best_atr, show_plot=True)
         if report:
-            print(f"  Sharpe:          {report['Sharpe']}")
-            print(f"  Total Return:    {report['Total_Return'] * 100:.2f}%")
-            print(f"  Max Drawdown:    {report['Max_Drawdown'] * 100:.2f}%")
-            print(f"  Trades:          {report['Num_Trades']}")
+            print(f"  Sharpe:          {report['sharpe']}")
+            print(f"  Total Return:    {report['total_return'] * 100:.2f}%")
+            print(f"  Max Drawdown:    {report['max_drawdown'] * 100:.2f}%")
+            print(f"  Trades:          {report['num_trades']}")
             print()
-            all_results.append({"Ticker": t, **{k: v for k, v in report.items()
-                                                 if k != "Trade_Log"}})
+            all_results.append({"ticker": t, **{k: v for k, v in report.items() if k != "trade_log"}})
 
     print("=== Final Results Summary ===")
-    summary_df = pd.DataFrame(all_results).drop(columns=["Trade_Log"], errors="ignore")
+    summary_df = pd.DataFrame(all_results)
     print(summary_df.to_string(index=False))
