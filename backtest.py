@@ -1,5 +1,5 @@
 """
-v1: ma crossover with fixed stop loss
+V1: moving-average crossover with a fixed percentage stop.
 Date: May 2026
 """
 
@@ -58,6 +58,7 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
         if position == 1:
             drawdown_from_entry = (closes[i] - entry_price) / entry_price
 
+            # Detect the breach with today's close, but fill at the fixed stop price.
             if drawdown_from_entry <= -stop_loss_pct:
                 stop_price = entry_price * (1 - stop_loss_pct)
                 strat_ret = (stop_price - closes[i - 1]) / closes[i - 1] - commission
@@ -82,6 +83,7 @@ def run_backtest(ticker, short_window, long_window, stop_loss_pct=0.05, show_plo
             else:
                 strat_ret = daily_mkt_return
         else:
+            # A crossover on row i - 1 can only open the position from that close onward.
             if i >= 2 and signals[i - 1] and not signals[i - 2]:
                 position = 1
                 entry_price = closes[i - 1]
@@ -191,6 +193,7 @@ if __name__ == "__main__":
     print(f"\nBest settings found: MA({best_short}, {best_long})")
     print(f"  Sharpe: {best_row['sharpe']}  Return: {best_row['total_return'] * 100:.2f}%  MDD: {best_row['max_drawdown'] * 100:.2f}%\n")
 
+    # Select on AAPL once, then reuse the same MA pair for the other assets.
     print("Testing these settings across other markets...\n")
     tickers = ["AAPL", "TSLA", "BTC-USD"]
     all_results = []

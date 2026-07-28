@@ -1,5 +1,5 @@
 """
-v2: ma crossover with atr stop
+V2: moving-average crossover with an ATR-scaled stop fixed at entry.
 Date: May 2026
 """
 
@@ -64,6 +64,7 @@ def run_backtest(ticker, short_window, long_window, atr_multiplier=2, show_plot=
         strat_ret = 0.0
 
         if position == 1:
+            # Detect the breach with today's close, but fill at the stored stop price.
             if closes[i] <= stop_price:
                 strat_ret = (stop_price - closes[i - 1]) / closes[i - 1] - commission
                 position = 0
@@ -91,7 +92,7 @@ def run_backtest(ticker, short_window, long_window, atr_multiplier=2, show_plot=
                 position = 1
                 entry_price = closes[i - 1]
                 entry_day = i
-                # TODO: trailing stop
+                # Fix the ATR-scaled stop at entry; do not update it while the position is open.
                 stop_price = entry_price - (atr_multiplier * atrs[i - 1])
                 strat_ret = daily_mkt_return - commission
 
@@ -202,6 +203,7 @@ if __name__ == "__main__":
     print(f"\nBest settings: MA({best_short}, {best_long}) | ATR Mult: {best_atr}")
     print(f"  Sharpe: {best_row['sharpe']}  Return: {best_row['total_return'] * 100:.2f}%  MDD: {best_row['max_drawdown'] * 100:.2f}%\n")
 
+    # Select on AAPL once, then reuse the same MA and ATR settings for the other assets.
     print("Testing these settings across other markets...\n")
     tickers = ["AAPL", "TSLA", "BTC-USD"]
     all_results = []
