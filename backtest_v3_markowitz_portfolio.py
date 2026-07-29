@@ -1,5 +1,5 @@
 """
-v3: markowitz mean-variance portfolio optimization and efficient frontier
+v3: markowitz mean-variance allocation and random portfolio comparison
 Date: June 2026
 """
 
@@ -60,7 +60,8 @@ if __name__ == "__main__":
         print("Warning: No asset data available. Exiting.")
         exit()
 
-    daily_returns = raw_data.pct_change().dropna()
+    raw_data = raw_data.loc[:, tickers].dropna()
+    daily_returns = raw_data.pct_change(fill_method=None).dropna()
     correlation_matrix = daily_returns.corr()
 
     print("\n--- Correlation Matrix (2025) ---")
@@ -94,6 +95,10 @@ if __name__ == "__main__":
         bounds=bounds,
         constraints=constraints
     )
+    if not gmv_result.success:
+        raise RuntimeError(
+            f"GMV optimization failed: {gmv_result.message}"
+        )
 
     max_sharpe_result = minimize(
         negative_sharpe_ratio,
@@ -103,6 +108,10 @@ if __name__ == "__main__":
         bounds=bounds,
         constraints=constraints
     )
+    if not max_sharpe_result.success:
+        raise RuntimeError(
+            f"Maximum-Sharpe optimization failed: {max_sharpe_result.message}"
+        )
 
     print(f"\nOptimization Results Summary (2025):")
     gmv_weights = gmv_result.x
@@ -130,7 +139,7 @@ if __name__ == "__main__":
         print(f"  -> {asset}: {weight * 100:.1f}%")
     print("=" * 50)
 
-    # Monte Carlo simulation to map out the feasible portfolio set and efficient frontier surface
+    # Sample random long-only portfolios for comparison with the optimized allocations.
     np.random.seed(42)
     num_portfolios = 10000
     results = np.zeros((3, num_portfolios))
@@ -150,7 +159,7 @@ if __name__ == "__main__":
     plt.scatter(gmv_vol * 100, gmv_ret * 100, marker='*', color='b', s=200, label='Global Minimum Variance (GMV)')
     plt.scatter(ms_vol * 100, ms_ret * 100, marker='*', color='r', s=200, label='Maximum Sharpe Portfolio')
 
-    plt.title('Monte Carlo Simulation: Markowitz Efficient Frontier (2025)')
+    plt.title("Random Long-Only Portfolios and Optimized Allocations (2025)")
     plt.xlabel('Annualised Volatility (Risk) %')
     plt.ylabel('Annualised Return %')
     plt.legend(labelspacing=0.8)
