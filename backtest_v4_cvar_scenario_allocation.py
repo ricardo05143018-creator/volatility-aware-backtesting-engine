@@ -11,11 +11,6 @@ from scipy.optimize import minimize
 import scipy.stats as stats
 
 
-# Network proxy setup if needed
-# os.environ['http_proxy'] = 'http://127.0.0.1:7892'
-# os.environ['https_proxy'] = 'http://127.0.0.1:7892'
-
-
 def portfolio_scenario_losses(weights, scenario_returns):
     """Scenario losses; positive values represent losses."""
     return -np.dot(scenario_returns, weights)

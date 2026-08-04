@@ -11,10 +11,6 @@ import seaborn as sns
 import yfinance as yf
 from scipy.optimize import minimize
 
-# Network proxy setup if needed
-# os.environ['http_proxy'] = 'http://127.0.0.1:7892'
-# os.environ['https_proxy'] = 'http://127.0.0.1:7892'
-
 
 def portfolio_performance(weights, returns, cov_matrix):
     port_return = np.sum(returns * weights)

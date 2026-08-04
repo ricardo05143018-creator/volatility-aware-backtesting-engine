@@ -3,14 +3,9 @@ V1: moving-average crossover with a fixed percentage stop.
 Date: May 2026
 """
 
-import os
 import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
-
-# Network proxy setup if needed
-# os.environ['http_proxy'] = 'http://127.0.0.1:7892'
-# os.environ['https_proxy'] = 'http://127.0.0.1:7892'
 
 
 def get_annual_trading_days(ticker):
