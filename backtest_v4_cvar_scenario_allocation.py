@@ -12,12 +12,11 @@ import scipy.stats as stats
 
 
 def portfolio_scenario_losses(weights, scenario_returns):
-    """Scenario losses; positive values represent losses."""
     return -np.dot(scenario_returns, weights)
 
 
 def cvar_objective(weights, scenario_returns, alpha):
-    """Mean loss in the worst 1-alpha fraction of scenarios."""
+    # mean loss in the worst 1-alpha fraction of scenarios
     losses = portfolio_scenario_losses(weights, scenario_returns)
     losses_sorted = np.sort(losses)
     cutoff_idx = int(len(losses_sorted) * alpha)
@@ -49,7 +48,7 @@ if __name__ == "__main__":
 
     raw_data = raw_data.loc[:, tickers].dropna()
 
-    # Keep only dates shared by all four assets; BTC weekend rows are excluded.
+    # keep only dates shared by all four assets; BTC weekend rows are excluded.
     daily_returns = raw_data.pct_change(fill_method=None).dropna()
     assets = list(daily_returns.columns)
     num_assets = len(assets)
@@ -60,7 +59,6 @@ if __name__ == "__main__":
         values = daily_returns[asset].values
         df_fit, loc_fit, scale_fit = stats.t.fit(values)
 
-        # If the fitted distribution has infinite variance, refit with df fixed at 3.
         if df_fit <= 2.0:
             print(f"  {asset}: fitted df={df_fit:.2f}; refitting with df fixed at 3.0")
             df_fit, loc_fit, scale_fit = stats.t.fit(values, fdf=3.0)
@@ -134,7 +132,7 @@ if __name__ == "__main__":
         oos_raw = oos_raw.loc[:, assets].dropna()
         oos_returns = oos_raw.pct_change(fill_method=None).dropna()
 
-        # Use the V3 weights rounded to four decimals and align them by ticker.
+        # use the V3 weights rounded to four decimals and align them by ticker.
         v3_weights = pd.Series({
             "AAPL": 0.0616,
             "TSLA": 0.0429,
